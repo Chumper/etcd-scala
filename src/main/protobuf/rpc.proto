@@ -190,7 +190,7 @@ service Auth {
 
   // RoleRevokePermission revokes a key or range permission of a specified role.
   rpc RoleRevokePermission(AuthRoleRevokePermissionRequest) returns (AuthRoleRevokePermissionResponse) {
-      
+
   }
 }
 

@@ -13,3 +13,5 @@ PB.targets in Compile := Seq(
 libraryDependencies += "com.trueaccord.scalapb" %% "scalapb-runtime" % com.trueaccord.scalapb.compiler.Version.scalapbVersion % "protobuf"
 libraryDependencies += "com.trueaccord.scalapb" %% "scalapb-runtime-grpc" % com.trueaccord.scalapb.compiler.Version.scalapbVersion
 libraryDependencies += "io.grpc" % "grpc-all" % "1.0.2"
+libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.1"
+libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.1" % "test"
