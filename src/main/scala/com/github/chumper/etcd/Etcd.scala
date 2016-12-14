@@ -10,11 +10,13 @@ import scala.concurrent.Future
 /**
   * Main trait for access to all etcd operations
   */
-class Etcd(address: String, port: Int) extends EtcdPut with EtcdRange with EtcdDelete {
+class Etcd(address: String, port: Int, plainText: Boolean = true) extends EtcdPut with EtcdRange with EtcdDelete {
 
   val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
+  if(plainText) {
+    builder.usePlaintext(true)
+  }
   val channel: ManagedChannel = builder
-    .usePlaintext(true)
     .build()
 
   val kvStub: KVStub = KVGrpc.stub(channel)
