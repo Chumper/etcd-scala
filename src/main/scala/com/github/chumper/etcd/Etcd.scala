@@ -2,7 +2,9 @@ package com.github.chumper.etcd
 
 import com.google.protobuf.ByteString
 import etcdserverpb.rpc.KVGrpc.KVStub
+import etcdserverpb.rpc.LeaseGrpc.LeaseStub
 import etcdserverpb.rpc._
+import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 import scala.concurrent.Future
@@ -10,37 +12,26 @@ import scala.concurrent.Future
 /**
   * Main trait for access to all etcd operations
   */
-class Etcd(address: String, port: Int, plainText: Boolean = true) extends EtcdPut with EtcdRange with EtcdDelete {
+class Etcd(address: String, port: Int, plainText: Boolean = true) {
 
-  val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
+  private val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
   if(plainText) {
     builder.usePlaintext(true)
   }
-  val channel: ManagedChannel = builder
-    .build()
+  private val channel: ManagedChannel = builder.build()
 
-  val kvStub: KVStub = KVGrpc.stub(channel)
+  val kv = new EtcdKv(KVGrpc.stub(channel))
+  val lease = new EtcdLease(LeaseGrpc.stub(channel))
 }
 
 object Etcd {
   def apply(address: String = "localhost", port: Int = 2379) = new Etcd(address, port)
 }
 
-trait EtcdPut {
+class EtcdKv(stub: KVStub) {
 
-  implicit val kvStub: KVStub
-
-  /**
-    * Will set a single string value to a given key
-    *
-    * @param key         The key to set the value on
-    * @param value       the value to set
-    * @param lease       the lease to associate the key with
-    * @param previousKey if the previous key should be returned
-    * @return
-    */
   def putString(key: String, value: String, lease: Long = 0, previousKey: Boolean = false): Future[PutResponse] = {
-    kvStub.put(PutRequest(
+    stub.put(PutRequest(
       key = ByteString.copyFromUtf8(key),
       value = ByteString.copyFromUtf8(value),
       lease = lease,
@@ -49,18 +40,13 @@ trait EtcdPut {
   }
 
   def put(key: String, value: Array[Byte], lease: Long = 0, previousKey: Boolean = false): Future[PutResponse] = {
-    kvStub.put(PutRequest(
+    stub.put(PutRequest(
       key = ByteString.copyFromUtf8(key),
       value = ByteString.copyFrom(value),
       lease = lease,
       prevKv = previousKey
     ))
   }
-}
-
-trait EtcdRange {
-
-  implicit val kvStub: KVStub
 
   /**
     * Will get all keys currently set
@@ -68,7 +54,7 @@ trait EtcdRange {
     * @param keysOnly will return only the keys or also the values
     */
   def keys(keysOnly: Boolean = true): Future[RangeResponse] = {
-    kvStub.range(RangeRequest(
+    stub.range(RangeRequest(
       key = ByteString.copyFromUtf8("\0"),
       rangeEnd = ByteString.copyFromUtf8("\0"),
       keysOnly = keysOnly
@@ -76,13 +62,13 @@ trait EtcdRange {
   }
 
   def get(key: String): Future[RangeResponse] = {
-    kvStub.range(RangeRequest(
+    stub.range(RangeRequest(
       key = ByteString.copyFromUtf8(key)
     ))
   }
 
   def greater(key: String): Future[RangeResponse] = {
-    kvStub.range(RangeRequest(
+    stub.range(RangeRequest(
       key = ByteString.copyFromUtf8(key),
       rangeEnd = ByteString.copyFromUtf8("\0")
     ))
@@ -100,33 +86,75 @@ trait EtcdRange {
     }
 
     val byteKeyInc: ByteString = getBitIncreasedKey
-    kvStub.range(RangeRequest(
+    stub.range(RangeRequest(
       key = byteKey,
       rangeEnd = byteKeyInc
     ))
   }
-}
-
-trait EtcdDelete {
-  implicit val kvStub: KVStub
 
   def deleteAll() : Future[DeleteRangeResponse] = {
-    kvStub.deleteRange(DeleteRangeRequest(
+    stub.deleteRange(DeleteRangeRequest(
       key =  ByteString.copyFromUtf8("\0"),
       rangeEnd = ByteString.copyFromUtf8("\0")
     ))
   }
 
   def delete(key: String) : Future[DeleteRangeResponse] = {
-    kvStub.deleteRange(DeleteRangeRequest(
+    stub.deleteRange(DeleteRangeRequest(
       key =  ByteString.copyFromUtf8(key)
     ))
   }
 
   def deletePrefix(key: String) : Future[DeleteRangeResponse] = {
-    kvStub.deleteRange(DeleteRangeRequest(
+    stub.deleteRange(DeleteRangeRequest(
       key =  ByteString.copyFromUtf8("\0"),
       rangeEnd = ByteString.copyFromUtf8("\0")
+    ))
+  }
+}
+
+class EtcdLease(stub: LeaseStub) {
+
+  private var leaseConnection : Option[StreamObserver[LeaseKeepAliveRequest]] = None
+
+  def grant(ttl: Long, id: Long = 0) : Future[LeaseGrantResponse] = {
+    stub.leaseGrant(LeaseGrantRequest(
+      tTL = ttl,
+      iD = id
+    ))
+  }
+
+  def revoke(id: Long) : Future[LeaseRevokeResponse] = {
+    stub.leaseRevoke(LeaseRevokeRequest(
+      iD = id
+    ))
+  }
+
+  def keepAlive(id: Long) : Unit = {
+    if(leaseConnection.isEmpty) {
+      leaseConnection = Some(stub.leaseKeepAlive(new StreamObserver[LeaseKeepAliveResponse] {
+
+        override def onError(t: Throwable): Unit = {
+          // close connection
+          leaseConnection = None
+        }
+
+        override def onCompleted(): Unit = {
+          leaseConnection = None
+        }
+
+        override def onNext(value: LeaseKeepAliveResponse): Unit = {
+          // just ignore, callback feature is not implemented yet
+        }
+      }))
+    }
+    leaseConnection.get.onNext(LeaseKeepAliveRequest(iD = id))
+  }
+
+  def info(id: Long, getKeys: Boolean = false) : Future[LeaseTimeToLiveResponse] = {
+    stub.leaseTimeToLive(LeaseTimeToLiveRequest(
+      iD = id,
+      keys = getKeys
     ))
   }
 }
