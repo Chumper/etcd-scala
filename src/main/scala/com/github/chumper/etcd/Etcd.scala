@@ -1,8 +1,12 @@
 package com.github.chumper.etcd
 
+import java.util
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
+
 import com.google.protobuf.ByteString
 import etcdserverpb.rpc.KVGrpc.KVStub
 import etcdserverpb.rpc.LeaseGrpc.LeaseStub
+import etcdserverpb.rpc.WatchGrpc.WatchStub
 import etcdserverpb.rpc._
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
@@ -115,7 +119,15 @@ class EtcdKv(stub: KVStub) {
 
 class EtcdLease(stub: LeaseStub) {
 
+  /**
+    * The connection for the keep alive requests and responses
+    */
   private var leaseConnection : Option[StreamObserver[LeaseKeepAliveRequest]] = None
+
+  /**
+    * A list of callback that we need to call when a response arrives
+    */
+  private var callbacks: ConcurrentMap[Long, util.HashSet[LeaseKeepAliveResponse => Unit]] = new ConcurrentHashMap()
 
   def grant(ttl: Long, id: Long = 0) : Future[LeaseGrantResponse] = {
     stub.leaseGrant(LeaseGrantRequest(
@@ -130,23 +142,13 @@ class EtcdLease(stub: LeaseStub) {
     ))
   }
 
-  def keepAlive(id: Long) : Unit = {
+  def keepAlive(id: Long, f: LeaseKeepAliveResponse => Unit = { _ => }) : Unit = {
     if(leaseConnection.isEmpty) {
-      leaseConnection = Some(stub.leaseKeepAlive(new StreamObserver[LeaseKeepAliveResponse] {
-
-        override def onError(t: Throwable): Unit = {
-          // close connection
-          leaseConnection = None
-        }
-
-        override def onCompleted(): Unit = {
-          leaseConnection = None
-        }
-
-        override def onNext(value: LeaseKeepAliveResponse): Unit = {
-          // just ignore, callback feature is not implemented yet
-        }
-      }))
+      leaseConnection = createKeepAliveConnection
+    }
+    this.synchronized {
+      callbacks.putIfAbsent(id, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
+      callbacks.get(id).add(f)
     }
     leaseConnection.get.onNext(LeaseKeepAliveRequest(iD = id))
   }
@@ -157,4 +159,60 @@ class EtcdLease(stub: LeaseStub) {
       keys = getKeys
     ))
   }
+
+  private def createKeepAliveConnection = Some(stub.leaseKeepAlive(new StreamObserver[LeaseKeepAliveResponse] {
+
+    override def onError(t: Throwable): Unit = {
+      // close connection
+      leaseConnection = None
+    }
+
+    override def onCompleted(): Unit = {
+      leaseConnection = None
+    }
+
+    override def onNext(value: LeaseKeepAliveResponse): Unit = {
+      // just ignore, callback feature is not implemented yet
+      this.synchronized {
+        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
+        callers.forEach { _.apply(value) }
+        callbacks.remove(value.iD)
+      }
+    }
+  }))
+}
+
+class EtcdWatch(stub: WatchStub) {
+
+//  /**
+//    * The connection for the keep alive requests and responses
+//    */
+//  private var leaseConnection : Option[StreamObserver[LeaseKeepAliveRequest]] = None
+//
+//  /**
+//    * A list of callback that we need to call when a response arrives
+//    */
+//  private var callbacks: ConcurrentMap[Long, util.HashSet[WatchResponse => Unit]] = new ConcurrentHashMap()
+//
+//  private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
+//
+//    override def onError(t: Throwable): Unit = {
+//      // close connection
+//      leaseConnection = None
+//    }
+//
+//    override def onCompleted(): Unit = {
+//      leaseConnection = None
+//    }
+//
+//    override def onNext(value: WatchResponse): Unit = {
+//      // just ignore, callback feature is not implemented yet
+//      this.synchronized {
+//        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
+//        callers.forEach { _.apply(value) }
+//        callbacks.remove(value.iD)
+//      }
+//    }
+//  }))
+
 }

@@ -109,4 +109,12 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
       assert (true)
     }
   }
+
+  test("Etcd can grant and keep alive a lease") {
+    etcd.lease.grant(10).map { resp =>
+      etcd.lease.keepAlive(resp.iD) { kv =>
+        assert (true)
+      }
+    }.flatten
+  }
 }
