@@ -11,7 +11,7 @@ import etcdserverpb.rpc._
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
 
 /**
   * Main trait for access to all etcd operations
@@ -19,13 +19,14 @@ import scala.concurrent.Future
 class Etcd(address: String, port: Int, plainText: Boolean = true) {
 
   private val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
-  if(plainText) {
+  if (plainText) {
     builder.usePlaintext(true)
   }
   private val channel: ManagedChannel = builder.build()
 
   val kv = new EtcdKv(KVGrpc.stub(channel))
   val lease = new EtcdLease(LeaseGrpc.stub(channel))
+  val watch = new EtcdWatch(WatchGrpc.stub(channel))
 }
 
 object Etcd {
@@ -96,22 +97,22 @@ class EtcdKv(stub: KVStub) {
     ))
   }
 
-  def deleteAll() : Future[DeleteRangeResponse] = {
+  def deleteAll(): Future[DeleteRangeResponse] = {
     stub.deleteRange(DeleteRangeRequest(
-      key =  ByteString.copyFromUtf8("\0"),
+      key = ByteString.copyFromUtf8("\0"),
       rangeEnd = ByteString.copyFromUtf8("\0")
     ))
   }
 
-  def delete(key: String) : Future[DeleteRangeResponse] = {
+  def delete(key: String): Future[DeleteRangeResponse] = {
     stub.deleteRange(DeleteRangeRequest(
-      key =  ByteString.copyFromUtf8(key)
+      key = ByteString.copyFromUtf8(key)
     ))
   }
 
-  def deletePrefix(key: String) : Future[DeleteRangeResponse] = {
+  def deletePrefix(key: String): Future[DeleteRangeResponse] = {
     stub.deleteRange(DeleteRangeRequest(
-      key =  ByteString.copyFromUtf8("\0"),
+      key = ByteString.copyFromUtf8("\0"),
       rangeEnd = ByteString.copyFromUtf8("\0")
     ))
   }
@@ -122,38 +123,40 @@ class EtcdLease(stub: LeaseStub) {
   /**
     * The connection for the keep alive requests and responses
     */
-  private var leaseConnection : Option[StreamObserver[LeaseKeepAliveRequest]] = None
+  private var leaseConnection: Option[StreamObserver[LeaseKeepAliveRequest]] = None
 
   /**
     * A list of callback that we need to call when a response arrives
     */
-  private var callbacks: ConcurrentMap[Long, util.HashSet[LeaseKeepAliveResponse => Unit]] = new ConcurrentHashMap()
+  private var callbacks: ConcurrentMap[Long, util.HashSet[Promise[LeaseKeepAliveResponse]]] = new ConcurrentHashMap()
 
-  def grant(ttl: Long, id: Long = 0) : Future[LeaseGrantResponse] = {
+  def grant(ttl: Long, id: Long = 0): Future[LeaseGrantResponse] = {
     stub.leaseGrant(LeaseGrantRequest(
       tTL = ttl,
       iD = id
     ))
   }
 
-  def revoke(id: Long) : Future[LeaseRevokeResponse] = {
+  def revoke(id: Long): Future[LeaseRevokeResponse] = {
     stub.leaseRevoke(LeaseRevokeRequest(
       iD = id
     ))
   }
 
-  def keepAlive(id: Long, f: LeaseKeepAliveResponse => Unit = { _ => }) : Unit = {
-    if(leaseConnection.isEmpty) {
+  def keepAlive(id: Long): Future[LeaseKeepAliveResponse] = {
+    if (leaseConnection.isEmpty) {
       leaseConnection = createKeepAliveConnection
     }
+    val p = Promise[LeaseKeepAliveResponse]
     this.synchronized {
-      callbacks.putIfAbsent(id, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
-      callbacks.get(id).add(f)
+      callbacks.putIfAbsent(id, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
+      callbacks.get(id).add(p)
     }
     leaseConnection.get.onNext(LeaseKeepAliveRequest(iD = id))
+    p.future
   }
 
-  def info(id: Long, getKeys: Boolean = false) : Future[LeaseTimeToLiveResponse] = {
+  def info(id: Long, getKeys: Boolean = false): Future[LeaseTimeToLiveResponse] = {
     stub.leaseTimeToLive(LeaseTimeToLiveRequest(
       iD = id,
       keys = getKeys
@@ -174,8 +177,8 @@ class EtcdLease(stub: LeaseStub) {
     override def onNext(value: LeaseKeepAliveResponse): Unit = {
       // just ignore, callback feature is not implemented yet
       this.synchronized {
-        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
-        callers.forEach { _.apply(value) }
+        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
+        callers.forEach(p => p.success(value))
         callbacks.remove(value.iD)
       }
     }
@@ -184,35 +187,96 @@ class EtcdLease(stub: LeaseStub) {
 
 class EtcdWatch(stub: WatchStub) {
 
-//  /**
-//    * The connection for the keep alive requests and responses
-//    */
-//  private var leaseConnection : Option[StreamObserver[LeaseKeepAliveRequest]] = None
-//
-//  /**
-//    * A list of callback that we need to call when a response arrives
-//    */
-//  private var callbacks: ConcurrentMap[Long, util.HashSet[WatchResponse => Unit]] = new ConcurrentHashMap()
-//
-//  private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
-//
-//    override def onError(t: Throwable): Unit = {
-//      // close connection
-//      leaseConnection = None
-//    }
-//
-//    override def onCompleted(): Unit = {
-//      leaseConnection = None
-//    }
-//
-//    override def onNext(value: WatchResponse): Unit = {
-//      // just ignore, callback feature is not implemented yet
-//      this.synchronized {
-//        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[(LeaseKeepAliveResponse) => Unit]())
-//        callers.forEach { _.apply(value) }
-//        callbacks.remove(value.iD)
-//      }
-//    }
-//  }))
+  /**
+    * The connection for the keep alive requests and responses
+    */
+  private var watchConnection: Option[StreamObserver[WatchRequest]] = None
+
+  /**
+    * A list of callback that we need to call when a response arrives
+    */
+  private var callbacks: ConcurrentMap[Long, Option[WatchResponse => Unit]] = new ConcurrentHashMap()
+
+  private var currentWaitingWatchRequest: Option[WatchResponse => Unit] = None
+
+  private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
+
+    override def onError(t: Throwable): Unit = {
+      // close connection
+      watchConnection = None
+    }
+
+    override def onCompleted(): Unit = {
+      watchConnection = None
+    }
+
+    override def onNext(value: WatchResponse): Unit = {
+      // just ignore, callback feature is not implemented yet
+      println(value.toString)
+
+      if (value.created) {
+        currentWaitingWatchRequest match {
+          case Some(callback) => callbacks.put(value.watchId, Some(callback))
+            currentWaitingWatchRequest = None
+          case None =>
+        }
+      }
+      val callers = callbacks.getOrDefault(value.watchId, None)
+      callers match {
+        case Some(callback) => callback.apply(value)
+        case None =>
+      }
+    }
+  }))
+
+  def key(id: String)(callback: WatchResponse => Unit) = {
+    // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
+    // https://github.com/coreos/etcd/issues/7036
+
+    this.synchronized {
+      if (watchConnection.isEmpty) {
+        watchConnection = createWatchConnection
+      }
+
+      currentWaitingWatchRequest = Some(callback)
+
+      watchConnection.get.onNext(
+        WatchRequest().withCreateRequest(WatchCreateRequest(
+          key = ByteString.copyFromUtf8(id)
+        ))
+      )
+    }
+  }
+
+  def prefix(id: String)(callback: WatchResponse => Unit) = {
+    // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
+    // https://github.com/coreos/etcd/issues/7036
+
+    this.synchronized {
+      if (watchConnection.isEmpty) {
+        watchConnection = createWatchConnection
+      }
+
+      currentWaitingWatchRequest = Some(callback)
+
+      watchConnection.get.onNext(
+        WatchRequest().withCreateRequest(WatchCreateRequest(
+          key = ByteString.copyFromUtf8(id)
+        ))
+      )
+    }
+  }
+
+  def cancel(watchId: Long): Unit = {
+    // remove from list
+    this.synchronized {
+      callbacks.remove(watchId)
+      watchConnection.get.onNext(
+        WatchRequest().withCancelRequest(WatchCancelRequest(
+          watchId = watchId
+        ))
+      )
+    }
+  }
 
 }

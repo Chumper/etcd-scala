@@ -1,6 +1,12 @@
- package com.github.chumper.etcd
+package com.github.chumper.etcd
 
-import org.scalatest.{AsyncFunSuite, BeforeAndAfter, ParallelTestExecution}
+import java.util.concurrent.Future
+
+import org.scalatest.{Assertion, AsyncFunSuite, BeforeAndAfter, ParallelTestExecution}
+
+import scala.concurrent.{Await, Promise}
+import scala.concurrent.duration.DurationDouble
+import scala.language.postfixOps
 
 /**
   * Requires a running etcd on standard port on localhost
@@ -106,15 +112,28 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
   test("Etcd can grant and keep alive a lease") {
     etcd.lease.grant(10).map { resp =>
       etcd.lease.keepAlive(resp.iD)
-      assert (true)
+      assert(true)
     }
   }
 
-  test("Etcd can grant and keep alive a lease") {
+  test("Etcd can grant and keep alive a lease with a future") {
     etcd.lease.grant(10).map { resp =>
-      etcd.lease.keepAlive(resp.iD) { kv =>
-        assert (true)
+      etcd.lease.keepAlive(resp.iD) map { t =>
+        assert(t.iD === resp.iD && t.tTL === resp.tTL)
       }
     }.flatten
+  }
+
+  test("Etcd can watch a key") {
+    val p = Promise[Assertion]
+    var watchId = 0l
+    etcd.watch.key("12345") { resp =>
+      watchId = resp.watchId
+      p.success(assert(true))
+    }
+    etcd.kv.putString("12345", "12345") map { resp =>
+      etcd.watch.cancel(watchId)
+    }
+    p.future
   }
 }
