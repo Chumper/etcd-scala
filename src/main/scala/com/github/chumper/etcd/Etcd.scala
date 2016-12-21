@@ -1,5 +1,6 @@
 package com.github.chumper.etcd
 
+import java.awt.TexturePaintContext
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 
@@ -229,7 +230,7 @@ class EtcdWatch(stub: WatchStub) {
     }
   }))
 
-  def key(id: String)(callback: WatchResponse => Unit) = {
+  def key(id: String)(callback: WatchResponse => Unit): Unit = {
     // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
     // https://github.com/coreos/etcd/issues/7036
 
@@ -248,7 +249,7 @@ class EtcdWatch(stub: WatchStub) {
     }
   }
 
-  def prefix(id: String)(callback: WatchResponse => Unit) = {
+  def prefix(id: String)(callback: WatchResponse => Unit): Unit = {
     // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
     // https://github.com/coreos/etcd/issues/7036
 
@@ -259,9 +260,11 @@ class EtcdWatch(stub: WatchStub) {
 
       currentWaitingWatchRequest = Some(callback)
 
+      val key = ByteString.copyFromUtf8(id)
       watchConnection.get.onNext(
         WatchRequest().withCreateRequest(WatchCreateRequest(
-          key = ByteString.copyFromUtf8(id)
+          key = key,
+          rangeEnd = getBitIncreasedKey(key)
         ))
       )
     }
@@ -277,6 +280,14 @@ class EtcdWatch(stub: WatchStub) {
         ))
       )
     }
+  }
+
+  def getBitIncreasedKey(byteKey: ByteString) = {
+    val lastBit = byteKey.byteAt(byteKey.size() - 1) + 1
+    val incKey = byteKey.substring(0, byteKey.size() - 1).toByteArray
+    val finalKey = incKey :+ lastBit.toByte
+    val byteKeyInc = ByteString.copyFrom(finalKey)
+    byteKeyInc
   }
 
 }
