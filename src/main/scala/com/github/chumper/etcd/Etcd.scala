@@ -3,17 +3,17 @@ package com.github.chumper.etcd
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 
+import com.github.chumper.grpc.OAuth2Credentials
 import com.google.protobuf.ByteString
 import etcdserverpb.rpc.AuthGrpc.AuthStub
 import etcdserverpb.rpc.KVGrpc.KVStub
 import etcdserverpb.rpc.LeaseGrpc.LeaseStub
 import etcdserverpb.rpc.WatchGrpc.WatchStub
 import etcdserverpb.rpc._
-import io.grpc.auth.{GoogleAuthLibraryCallCredentials, MoreCallCredentials}
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
-import scala.concurrent.ExecutionContext.Implicits.global
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future, Promise}
 import scala.language.postfixOps
@@ -33,12 +33,21 @@ class Etcd(address: String, port: Int, plainText: Boolean = true) {
   private val channel: ManagedChannel = builder.build()
 
   lazy val kv: EtcdKv = token match {
-    case Some(t) => new EtcdKv(KVGrpc.stub(channel))
+    case Some(t) => new EtcdKv(KVGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
     case None => new EtcdKv(KVGrpc.stub(channel))
   }
-  lazy val lease = new EtcdLease(LeaseGrpc.stub(channel))
-  lazy val watch = new EtcdWatch(WatchGrpc.stub(channel))
-  lazy val auth = new EtcdAuth(AuthGrpc.stub(channel))
+  lazy val lease: EtcdLease = token match {
+    case Some(t) => new EtcdLease(LeaseGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
+    case None => new EtcdLease(LeaseGrpc.stub(channel))
+  }
+  lazy val watch: EtcdWatch = token match {
+    case Some(t) => new EtcdWatch(WatchGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
+    case None => new EtcdWatch(WatchGrpc.stub(channel))
+  }
+  lazy val auth: EtcdAuth = token match {
+    case Some(t) => new EtcdAuth(AuthGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
+    case None => new EtcdAuth(AuthGrpc.stub(channel))
+  }
 
   def withAuth(username: String, password: String): Etcd = {
     this.token = Some(Await.result(auth.authenticate(username, password), 3 seconds))
