@@ -12,6 +12,7 @@ import etcdserverpb.rpc._
 import io.grpc.auth.{GoogleAuthLibraryCallCredentials, MoreCallCredentials}
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
+import scala.concurrent.ExecutionContext.Implicits.global
 
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future, Promise}
@@ -32,7 +33,7 @@ class Etcd(address: String, port: Int, plainText: Boolean = true) {
   private val channel: ManagedChannel = builder.build()
 
   lazy val kv: EtcdKv = token match {
-    case Some(t) => new EtcdKv(KVGrpc.stub(channel).withCallCredentials(OAuth2Credentials))
+    case Some(t) => new EtcdKv(KVGrpc.stub(channel))
     case None => new EtcdKv(KVGrpc.stub(channel))
   }
   lazy val lease = new EtcdLease(LeaseGrpc.stub(channel))
