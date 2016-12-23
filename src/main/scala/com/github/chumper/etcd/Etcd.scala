@@ -44,10 +44,7 @@ class Etcd(address: String, port: Int, plainText: Boolean = true) {
     case Some(t) => new EtcdWatch(WatchGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
     case None => new EtcdWatch(WatchGrpc.stub(channel))
   }
-  lazy val auth: EtcdAuth = token match {
-    case Some(t) => new EtcdAuth(AuthGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
-    case None => new EtcdAuth(AuthGrpc.stub(channel))
-  }
+  lazy val auth: EtcdAuth = new EtcdAuth(AuthGrpc.stub(channel))
 
   def withAuth(username: String, password: String): Etcd = {
     this.token = Some(Await.result(auth.authenticate(username, password), 3 seconds))

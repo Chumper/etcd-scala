@@ -87,6 +87,12 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
     }.flatten
   }
 
+  test("Etcd can login") {
+    etcd.auth.authenticate("root", "root").map { resp =>
+      assert(true)
+    }
+  }
+
   test("Etcd can delete specific keys") {
     etcd.kv.putString("foo8", "bar").map { resp =>
       etcd.kv.delete("foo8") map { data =>
