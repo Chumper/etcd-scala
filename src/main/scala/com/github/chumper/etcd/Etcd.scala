@@ -1,37 +1,63 @@
 package com.github.chumper.etcd
 
-import java.awt.TexturePaintContext
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 
 import com.google.protobuf.ByteString
+import etcdserverpb.rpc.AuthGrpc.AuthStub
 import etcdserverpb.rpc.KVGrpc.KVStub
 import etcdserverpb.rpc.LeaseGrpc.LeaseStub
 import etcdserverpb.rpc.WatchGrpc.WatchStub
 import etcdserverpb.rpc._
+import io.grpc.auth.{GoogleAuthLibraryCallCredentials, MoreCallCredentials}
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, Future, Promise}
+import scala.language.postfixOps
 
 /**
   * Main trait for access to all etcd operations
   */
 class Etcd(address: String, port: Int, plainText: Boolean = true) {
 
+  private var token: Option[String] = None
+
   private val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
   if (plainText) {
     builder.usePlaintext(true)
   }
+
   private val channel: ManagedChannel = builder.build()
 
-  val kv = new EtcdKv(KVGrpc.stub(channel))
-  val lease = new EtcdLease(LeaseGrpc.stub(channel))
-  val watch = new EtcdWatch(WatchGrpc.stub(channel))
+  lazy val kv: EtcdKv = token match {
+    case Some(t) => new EtcdKv(KVGrpc.stub(channel).withCallCredentials(OAuth2Credentials))
+    case None => new EtcdKv(KVGrpc.stub(channel))
+  }
+  lazy val lease = new EtcdLease(LeaseGrpc.stub(channel))
+  lazy val watch = new EtcdWatch(WatchGrpc.stub(channel))
+  lazy val auth = new EtcdAuth(AuthGrpc.stub(channel))
+
+  def withAuth(username: String, password: String): Etcd = {
+    this.token = Some(Await.result(auth.authenticate(username, password), 3 seconds))
+    this
+  }
 }
 
 object Etcd {
   def apply(address: String = "localhost", port: Int = 2379) = new Etcd(address, port)
+}
+
+class EtcdAuth(stub: AuthStub) {
+  def authenticate(username: String, pass: String): Future[String] = {
+    stub.authenticate(AuthenticateRequest(
+      name = username,
+      password = pass
+    )).map { resp =>
+      resp.token
+    }
+  }
 }
 
 class EtcdKv(stub: KVStub) {
