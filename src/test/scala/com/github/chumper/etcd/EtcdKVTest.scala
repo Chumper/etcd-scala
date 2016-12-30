@@ -10,9 +10,9 @@ import util.EtcdService
 import scala.concurrent.{ExecutionContext, Promise}
 import scala.language.postfixOps
 /**
-  * Requires a running etcd on standard port on localhost
+  * Requires docker api available on localhost
   */
-class EtcdKVTest extends AsyncFunSuite with BeforeAndAfterAll with BeforeAndAfter with DockerTestKit with EtcdService {
+class EtcdKVTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit with EtcdService {
 
   implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 

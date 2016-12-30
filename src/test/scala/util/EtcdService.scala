@@ -1,9 +1,7 @@
 package util
 
-import com.whisk.docker.scalatest.DockerTestKit
 import com.whisk.docker.{DockerContainer, DockerKit, DockerReadyChecker}
 
-import scala.concurrent.duration.DurationDouble
 import scala.language.postfixOps
 
 trait EtcdService extends DockerKit {

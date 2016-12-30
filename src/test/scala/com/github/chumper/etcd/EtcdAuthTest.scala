@@ -17,7 +17,7 @@ import scala.language.postfixOps
 /**
   * Requires a running etcd on standard port on localhost
   */
-class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with BeforeAndAfterAll with DockerTestKit with EtcdService {
+class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit with EtcdService {
 
   implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 
