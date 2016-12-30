@@ -311,7 +311,7 @@ class EtcdLease(private var stub: LeaseStub) {
     override def onNext(value: LeaseKeepAliveResponse): Unit = {
       // just ignore, callback feature is not implemented yet
       this.synchronized {
-        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
+        val callers: util.HashSet[Promise[LeaseKeepAliveResponse]] = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
         callers.forEach(p => p.success(value))
         callbacks.remove(value.iD)
       }

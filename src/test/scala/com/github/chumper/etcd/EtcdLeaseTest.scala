@@ -13,7 +13,7 @@ import scala.language.postfixOps
 /**
   * Requires a running etcd on standard port on localhost
   */
-class EtcdLeaseTest extends AsyncFunSuite with BeforeAndAfterAll with BeforeAndAfter with DockerTestKit with EtcdService {
+class EtcdLeaseTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit with EtcdService {
 
   implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 
@@ -30,26 +30,24 @@ class EtcdLeaseTest extends AsyncFunSuite with BeforeAndAfterAll with BeforeAndA
   }
 
   test("Etcd can grant and revoke a lease") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.revoke(resp.iD) map { data =>
-        assert(data.header !== None)
-      }
-    }.flatten
+    for {
+      r1 <- etcd.lease.grant(10)
+      r2 <- etcd.lease.revoke(r1.iD)
+    } yield assert(r1.header !== None)
   }
 
   test("Etcd can grant and keep alive a lease") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.keepAlive(resp.iD)
-      assert(true)
-    }
+    for {
+      r1 <- etcd.lease.grant(10)
+      r2 <- etcd.lease.keepAlive(r1.iD)
+    } yield assert(true)
   }
 
   test("Etcd can grant and keep alive a lease with a future") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.keepAlive(resp.iD) map { t =>
-        assert(t.iD === resp.iD && t.tTL === resp.tTL)
-      }
-    }.flatten
+    for {
+      r1 <- etcd.lease.grant(10)
+      r2 <- etcd.lease.keepAlive(r1.iD)
+    } yield assert(r2.iD === r1.iD && r2.tTL === r1.tTL)
   }
 
   override implicit def dockerFactory: DockerFactory =
