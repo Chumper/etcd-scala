@@ -11,7 +11,6 @@ import etcdserverpb.rpc.KVGrpc.KVStub
 import etcdserverpb.rpc.LeaseGrpc.LeaseStub
 import etcdserverpb.rpc.WatchGrpc.WatchStub
 import etcdserverpb.rpc._
-import io.grpc.auth.MoreCallCredentials
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 

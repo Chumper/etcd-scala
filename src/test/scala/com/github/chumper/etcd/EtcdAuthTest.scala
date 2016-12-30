@@ -83,6 +83,15 @@ class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with BeforeAndAfter
     } yield assert(true)
   }
 
+  test("Etcd can manage users and roles") {
+    for {
+      r1 <- etcd.auth.getUser("root")
+      r2 <- etcd.auth.getRole("root")
+      r3 <- etcd.auth.deleteRole("root")
+      r4 <- etcd.auth.deleteUser("root")
+    } yield assert(r1.roles.contains("root"))
+  }
+
   override implicit def dockerFactory: DockerFactory =
     new SpotifyDockerFactory(DefaultDockerClient.fromEnv().build())
 }

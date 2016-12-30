@@ -23,11 +23,10 @@ class EtcdKVTest extends AsyncFunSuite with BeforeAndAfterAll with BeforeAndAfte
   }
 
   test("Etcd can set a string") {
-    etcd.kv.putString("foo1", "bar").map { resp =>
-      etcd.kv.get("foo1").map { data =>
-        assert(data.kvs.head.value.toStringUtf8 === "bar")
-      }
-    }.flatten
+    for {
+      r1 <- etcd.kv.putString("foo1", "bar")
+      r2 <- etcd.kv.get("foo1")
+    } yield assert(r2.kvs.head.value.toStringUtf8 === "bar")
   }
 
   test("Etcd can set a byte value") {
