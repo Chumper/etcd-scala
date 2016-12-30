@@ -12,11 +12,9 @@ trait EtcdService extends DockerKit {
   val etcdContainer: DockerContainer = DockerContainer("alfatraining/etcd3")
     .withPorts(defaultEtcdPort -> Some(exposedEtcdPort))
     .withReadyChecker(
-      DockerReadyChecker
-        .LogLineContains("ready to serve client requests")
+      DockerReadyChecker.LogLineContains("ready to serve client requests")
     )
 
   abstract override def dockerContainers: List[DockerContainer] =
     etcdContainer :: super.dockerContainers
-
 }
