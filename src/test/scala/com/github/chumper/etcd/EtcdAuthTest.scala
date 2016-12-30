@@ -85,10 +85,14 @@ class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit 
 
   test("Etcd can manage users and roles") {
     for {
+      r0 <- etcd.auth.allUsers()
       r1 <- etcd.auth.getUser("root")
+      r21 <- etcd.auth.allRoles()
       r2 <- etcd.auth.getRole("root")
+      r22 <- etcd.auth.revokeRole("root", "root")
       r3 <- etcd.auth.deleteRole("root")
       r4 <- etcd.auth.deleteUser("root")
+      r5 <- etcd.auth.changePassword("root", "root1")
     } yield assert(r1.roles.contains("root"))
   }
 

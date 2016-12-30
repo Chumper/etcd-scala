@@ -349,9 +349,6 @@ class EtcdWatch(private var stub: WatchStub) {
     }
 
     override def onNext(value: WatchResponse): Unit = {
-      // just ignore, callback feature is not implemented yet
-      println(value.toString)
-
       if (value.created) {
         currentWaitingWatchRequest match {
           case Some(callback) => callbacks.put(value.watchId, Some(callback))
