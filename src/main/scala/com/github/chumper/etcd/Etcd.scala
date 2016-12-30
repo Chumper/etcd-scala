@@ -3,13 +3,15 @@ package com.github.chumper.etcd
 import java.util
 import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 
-import com.github.chumper.grpc.OAuth2Credentials
+import authpb.auth.Permission
+import com.github.chumper.grpc
 import com.google.protobuf.ByteString
 import etcdserverpb.rpc.AuthGrpc.AuthStub
 import etcdserverpb.rpc.KVGrpc.KVStub
 import etcdserverpb.rpc.LeaseGrpc.LeaseStub
 import etcdserverpb.rpc.WatchGrpc.WatchStub
 import etcdserverpb.rpc._
+import io.grpc.auth.MoreCallCredentials
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
@@ -21,9 +23,7 @@ import scala.language.postfixOps
 /**
   * Main trait for access to all etcd operations
   */
-class Etcd(address: String, port: Int, plainText: Boolean = true) {
-
-  private var token: Option[String] = None
+class Etcd(address: String, port: Int, plainText: Boolean = true, token: Option[String] = None) {
 
   private val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
   if (plainText) {
@@ -32,31 +32,35 @@ class Etcd(address: String, port: Int, plainText: Boolean = true) {
 
   private val channel: ManagedChannel = builder.build()
 
-  lazy val kv: EtcdKv = token match {
-    case Some(t) => new EtcdKv(KVGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
-    case None => new EtcdKv(KVGrpc.stub(channel))
-  }
-  lazy val lease: EtcdLease = token match {
-    case Some(t) => new EtcdLease(LeaseGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
-    case None => new EtcdLease(LeaseGrpc.stub(channel))
-  }
-  lazy val watch: EtcdWatch = token match {
-    case Some(t) => new EtcdWatch(WatchGrpc.stub(channel).withCallCredentials(OAuth2Credentials(t)))
-    case None => new EtcdWatch(WatchGrpc.stub(channel))
-  }
-  lazy val auth: EtcdAuth = new EtcdAuth(AuthGrpc.stub(channel))
+  val kv: EtcdKv = new EtcdKv(KVGrpc.stub(channel))
+  val lease: EtcdLease = new EtcdLease(LeaseGrpc.stub(channel))
+  val watch: EtcdWatch = new EtcdWatch(WatchGrpc.stub(channel))
+  val auth: EtcdAuth = new EtcdAuth(AuthGrpc.stub(channel))
 
   def withAuth(username: String, password: String): Etcd = {
-    this.token = Some(Await.result(auth.authenticate(username, password), 3 seconds))
+    val t = Await.result(auth.authenticate(username, password), 3 seconds)
+    withToken(t)
+  }
+
+  def withToken(token: String): Etcd = {
+    kv.withToken(token)
+    lease.withToken(token)
+    watch.withToken(token)
+    auth.withToken(token)
     this
   }
 }
 
 object Etcd {
-  def apply(address: String = "localhost", port: Int = 2379) = new Etcd(address, port)
+  def apply(address: String = "localhost", port: Int = 2379, plainText: Boolean = true, token: Option[String] = None) = new Etcd(address, port, plainText, token)
 }
 
-class EtcdAuth(stub: AuthStub) {
+class EtcdAuth(private var stub: AuthStub) {
+
+  def withToken(token: String): Unit = {
+    this.stub = AuthGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
+  }
+
   def authenticate(username: String, pass: String): Future[String] = {
     stub.authenticate(AuthenticateRequest(
       name = username,
@@ -65,9 +69,102 @@ class EtcdAuth(stub: AuthStub) {
       resp.token
     }
   }
+
+  def enable(): Future[AuthEnableResponse] = {
+    stub.authEnable(AuthEnableRequest())
+  }
+
+  def disable(): Future[AuthDisableResponse] = {
+    stub.authDisable(AuthDisableRequest())
+  }
+
+  def addUser(name: String, password: String): Future[AuthUserAddResponse] = {
+    stub.userAdd(AuthUserAddRequest(
+      name = name,
+      password = password
+    ))
+  }
+
+  def getUser(name: String): Future[AuthUserGetResponse] = {
+    stub.userGet(AuthUserGetRequest(
+      name = name
+    ))
+  }
+
+  def allUsers(): Future[AuthUserListResponse] = {
+    stub.userList(AuthUserListRequest(
+    ))
+  }
+
+  def deleteUser(name: String): Future[AuthUserDeleteResponse] = {
+    stub.userDelete(AuthUserDeleteRequest(
+      name = name
+    ))
+  }
+
+  def changePassword(name: String, password: String): Future[AuthUserChangePasswordResponse] = {
+    stub.userChangePassword(AuthUserChangePasswordRequest(
+      name = name,
+      password = password
+    ))
+  }
+
+  def grantRole(username: String, role: String): Future[AuthUserGrantRoleResponse] = {
+    stub.userGrantRole(AuthUserGrantRoleRequest(
+      user = username,
+      role = role
+    ))
+  }
+
+  def revokeRole(username: String, role: String): Future[AuthUserRevokeRoleResponse] = {
+    stub.userRevokeRole(AuthUserRevokeRoleRequest(
+      name = username,
+      role = role
+    ))
+  }
+
+  def addRole(name: String): Future[AuthRoleAddResponse] = {
+    stub.roleAdd(AuthRoleAddRequest(
+      name = name
+    ))
+  }
+
+  def getRole(name: String): Future[AuthRoleGetResponse] = {
+    stub.roleGet(AuthRoleGetRequest(
+      role = name
+    ))
+  }
+
+  def allRoles(): Future[AuthRoleListResponse] = {
+    stub.roleList(AuthRoleListRequest())
+  }
+
+  def deleteRole(name: String): Future[AuthRoleDeleteResponse] = {
+    stub.roleDelete(AuthRoleDeleteRequest(
+      role = name
+    ))
+  }
+
+  def grantPermission(name: String, permission: Option[Permission]): Future[AuthRoleGrantPermissionResponse] = {
+    stub.roleGrantPermission(AuthRoleGrantPermissionRequest(
+      name = name,
+      perm = permission
+    ))
+  }
+
+  def revokePermission(name: String, key: String): Future[AuthRoleRevokePermissionResponse] = {
+    stub.roleRevokePermission(AuthRoleRevokePermissionRequest(
+      role = name,
+      key = key
+    ))
+  }
 }
 
-class EtcdKv(stub: KVStub) {
+class EtcdKv(private var stub: KVStub) {
+
+  def withToken(token: String): Unit = {
+    this.stub = KVGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
+  }
 
   def putString(key: String, value: String, lease: Long = 0, previousKey: Boolean = false): Future[PutResponse] = {
     stub.put(PutRequest(
@@ -152,7 +249,11 @@ class EtcdKv(stub: KVStub) {
   }
 }
 
-class EtcdLease(stub: LeaseStub) {
+class EtcdLease(private var stub: LeaseStub) {
+
+  def withToken(token: String): Unit = {
+    this.stub = LeaseGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
+  }
 
   /**
     * The connection for the keep alive requests and responses
@@ -219,7 +320,11 @@ class EtcdLease(stub: LeaseStub) {
   }))
 }
 
-class EtcdWatch(stub: WatchStub) {
+class EtcdWatch(private var stub: WatchStub) {
+
+  def withToken(token: String): Unit = {
+    this.stub = WatchGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
+  }
 
   /**
     * The connection for the keep alive requests and responses

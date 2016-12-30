@@ -5,14 +5,14 @@ import java.util.concurrent.Executor
 import io.grpc.CallCredentials.MetadataApplier
 import io.grpc.{Attributes, CallCredentials, Metadata, MethodDescriptor}
 
-class OAuth2Credentials(token: String) extends CallCredentials {
+class EtcdTokenCredentials(token: String) extends CallCredentials {
   override def applyRequestMetadata(method: MethodDescriptor[_, _], attrs: Attributes, appExecutor: Executor, applier: MetadataApplier): Unit = {
     val metaData = new Metadata()
-    metaData.put(Metadata.Key.of("Authorization", Metadata.ASCII_STRING_MARSHALLER), s"Bearer $token")
+    metaData.put(Metadata.Key.of("token", Metadata.ASCII_STRING_MARSHALLER), s"$token")
     applier.apply(metaData)
   }
 }
 
-object OAuth2Credentials {
-  def apply(token: String): OAuth2Credentials = new OAuth2Credentials(token)
+object EtcdTokenCredentials {
+  def apply(token: String): EtcdTokenCredentials = new EtcdTokenCredentials(token)
 }

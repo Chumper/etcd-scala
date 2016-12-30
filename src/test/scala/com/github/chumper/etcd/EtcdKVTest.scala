@@ -1,17 +1,20 @@
 package com.github.chumper.etcd
 
-import java.util.concurrent.Future
+import com.spotify.docker.client.{DefaultDockerClient, DockerClient}
+import com.whisk.docker.DockerFactory
+import com.whisk.docker.impl.spotify.SpotifyDockerFactory
+import com.whisk.docker.scalatest.DockerTestKit
+import org.scalatest._
+import util.EtcdService
 
-import org.scalatest.{Assertion, AsyncFunSuite, BeforeAndAfter, ParallelTestExecution}
-
-import scala.concurrent.{Await, Promise}
-import scala.concurrent.duration.DurationDouble
+import scala.concurrent.{ExecutionContext, Promise}
 import scala.language.postfixOps
-
 /**
   * Requires a running etcd on standard port on localhost
   */
-class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecution {
+class EtcdKVTest extends AsyncFunSuite with BeforeAndAfterAll with BeforeAndAfter with ParallelTestExecution with DockerTestKit with EtcdService {
+
+  implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 
   var etcd: Etcd = _
 
@@ -21,7 +24,7 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
 
   test("Etcd can set a string") {
     etcd.kv.putString("foo1", "bar").map { resp =>
-      etcd.kv.get("foo1") map { data =>
+      etcd.kv.get("foo1").map { data =>
         assert(data.kvs.head.value.toStringUtf8 === "bar")
       }
     }.flatten
@@ -87,12 +90,6 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
     }.flatten
   }
 
-  test("Etcd can login") {
-    etcd.auth.authenticate("root", "root").map { resp =>
-      assert(true)
-    }
-  }
-
   test("Etcd can delete specific keys") {
     etcd.kv.putString("foo8", "bar").map { resp =>
       etcd.kv.delete("foo8") map { data =>
@@ -101,58 +98,6 @@ class EtcdTest extends AsyncFunSuite with BeforeAndAfter with ParallelTestExecut
     }.flatten
   }
 
-  test("Etcd can grant a lease") {
-    etcd.lease.grant(10).map { resp =>
-      assert(resp.tTL === 10)
-    }
-  }
-
-  test("Etcd can grant and revoke a lease") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.revoke(resp.iD) map { data =>
-        assert(data.header !== None)
-      }
-    }.flatten
-  }
-
-  test("Etcd can grant and keep alive a lease") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.keepAlive(resp.iD)
-      assert(true)
-    }
-  }
-
-  test("Etcd can grant and keep alive a lease with a future") {
-    etcd.lease.grant(10).map { resp =>
-      etcd.lease.keepAlive(resp.iD) map { t =>
-        assert(t.iD === resp.iD && t.tTL === resp.tTL)
-      }
-    }.flatten
-  }
-
-  test("Etcd can watch a key") {
-    val p = Promise[Assertion]
-    var watchId = 0l
-    etcd.watch.key("12345") { resp =>
-      watchId = resp.watchId
-      p.success(assert(true))
-    }
-    etcd.kv.putString("12345", "12345") map { resp =>
-      etcd.watch.cancel(watchId)
-    }
-    p.future
-  }
-
-  test("Etcd can watch a key with prefix") {
-    val p = Promise[Assertion]
-    var watchId = 0l
-    etcd.watch.prefix("12345") { resp =>
-      watchId = resp.watchId
-      p.success(assert(true))
-    }
-    etcd.kv.putString("12345.asdasd", "12345") map { resp =>
-      etcd.watch.cancel(watchId)
-    }
-    p.future
-  }
+  override implicit def dockerFactory: DockerFactory =
+    new SpotifyDockerFactory(DefaultDockerClient.fromEnv().build())
 }
