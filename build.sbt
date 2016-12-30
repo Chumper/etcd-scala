@@ -2,7 +2,10 @@ name := "etcd3-scala"
 
 version := "0.1.0"
 
-scalaVersion := "2.12.0"
+scalaVersion := "2.12.1"
+crossScalaVersions := Seq("2.11.8", "2.12.1")
+
+parallelExecution in Test := false
 
 PB.targets in Compile := Seq(
   scalapb.gen() -> (sourceManaged in Compile).value

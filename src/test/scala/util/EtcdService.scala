@@ -6,10 +6,11 @@ import scala.language.postfixOps
 
 trait EtcdService extends DockerKit {
 
-  val DefaultEtcdPort = 2379
+  def defaultEtcdPort = 2379
+  def exposedEtcdPort = 2379
 
   val etcdContainer: DockerContainer = DockerContainer("alfatraining/etcd3")
-    .withPorts(DefaultEtcdPort -> Some(DefaultEtcdPort))
+    .withPorts(defaultEtcdPort -> Some(exposedEtcdPort))
     .withReadyChecker(
       DockerReadyChecker
         .LogLineContains("ready to serve client requests")

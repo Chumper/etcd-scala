@@ -15,12 +15,14 @@ import scala.language.postfixOps
   */
 class EtcdWatchTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit with EtcdService {
 
+  override def exposedEtcdPort: Int = 2382
+
   implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 
   var etcd: Etcd = _
 
   before {
-    etcd = Etcd()
+    etcd = Etcd(port = exposedEtcdPort)
   }
 
   test("Etcd can watch a key") {

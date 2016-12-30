@@ -14,6 +14,8 @@ import etcdserverpb.rpc._
 import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
+import scala.collection.JavaConversions._
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future, Promise}
@@ -311,8 +313,8 @@ class EtcdLease(private var stub: LeaseStub) {
     override def onNext(value: LeaseKeepAliveResponse): Unit = {
       // just ignore, callback feature is not implemented yet
       this.synchronized {
-        val callers: util.HashSet[Promise[LeaseKeepAliveResponse]] = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
-        callers.forEach(p => p.success(value))
+        val callers = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
+        callers.foreach(p => p.success(value))
         callbacks.remove(value.iD)
       }
     }

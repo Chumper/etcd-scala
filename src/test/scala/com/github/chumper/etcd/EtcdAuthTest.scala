@@ -19,6 +19,8 @@ import scala.language.postfixOps
   */
 class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit with EtcdService {
 
+  override def exposedEtcdPort: Int = 2379
+
   implicit val executor: ExecutionContext = ExecutionContext.fromExecutor(null)
 
   var etcd: Etcd = _
@@ -35,7 +37,7 @@ class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit 
   }
 
   def disableAuth(): Future[Boolean] = {
-    val e = Etcd().withAuth("root", "root")
+    val e = Etcd(port = exposedEtcdPort).withAuth("root", "root")
     for {
       r2 <- e.auth.disable()
     } yield true
@@ -43,12 +45,12 @@ class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit 
 
   override def beforeAll(): Unit = {
     super.beforeAll()
-    etcd = Etcd()
+    etcd = Etcd(port = exposedEtcdPort)
     Await.result(setUpAuthentication(), 5 seconds)
   }
 
   before {
-    etcd = Etcd()
+    etcd = Etcd(port = exposedEtcdPort)
   }
 
   test("Etcd can login") {
@@ -91,8 +93,8 @@ class EtcdAuthTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit 
       r2 <- etcd.auth.getRole("root")
       r22 <- etcd.auth.revokeRole("root", "root")
       r3 <- etcd.auth.deleteRole("root")
-      r4 <- etcd.auth.deleteUser("root")
       r5 <- etcd.auth.changePassword("root", "root1")
+      r4 <- etcd.auth.deleteUser("root")
     } yield assert(r1.roles.contains("root"))
   }
 
