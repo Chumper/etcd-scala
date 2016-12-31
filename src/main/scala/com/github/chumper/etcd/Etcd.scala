@@ -15,11 +15,11 @@ import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 import scala.collection.JavaConversions._
-
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future, Promise}
 import scala.language.postfixOps
+import scala.util.Try
 
 /**
   * Main trait for access to all etcd operations
@@ -335,9 +335,9 @@ class EtcdWatch(private var stub: WatchStub) {
   /**
     * A list of callback that we need to call when a response arrives
     */
-  private var callbacks: ConcurrentMap[Long, Option[WatchResponse => Unit]] = new ConcurrentHashMap()
+  private val callbacks: ConcurrentMap[Long, Option[WatchResponse => Unit]] = new ConcurrentHashMap()
 
-  private var currentWaitingWatchRequest: Option[WatchResponse => Unit] = None
+  private var watchRequestQueue: Seq[Tuple2[Promise[Long], WatchResponse => Unit]] = Seq()
 
   private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
 
@@ -352,10 +352,11 @@ class EtcdWatch(private var stub: WatchStub) {
 
     override def onNext(value: WatchResponse): Unit = {
       if (value.created) {
-        currentWaitingWatchRequest match {
-          case Some(callback) => callbacks.put(value.watchId, Some(callback))
-            currentWaitingWatchRequest = None
-          case None =>
+        watchRequestQueue match {
+          case Seq(head, rest @ _*) => callbacks.put(value.watchId, Some(head._2))
+            watchRequestQueue.remove(0)
+            head._1.tryComplete(Try {value.watchId} )
+          case _ =>
         }
       }
       val callers = callbacks.getOrDefault(value.watchId, None)
@@ -366,35 +367,33 @@ class EtcdWatch(private var stub: WatchStub) {
     }
   }))
 
-  def key(id: String)(callback: WatchResponse => Unit): Unit = {
-    // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
-    // https://github.com/coreos/etcd/issues/7036
-
+  def key(id: String)(callback: WatchResponse => Unit): Future[Long] = {
     this.synchronized {
+      val p = Promise[Long]
       if (watchConnection.isEmpty) {
         watchConnection = createWatchConnection
       }
 
-      currentWaitingWatchRequest = Some(callback)
+      watchRequestQueue.add(Tuple2(p, callback))
 
       watchConnection.get.onNext(
         WatchRequest().withCreateRequest(WatchCreateRequest(
           key = ByteString.copyFromUtf8(id)
         ))
       )
+      p.future
     }
   }
 
-  def prefix(id: String)(callback: WatchResponse => Unit): Unit = {
-    // we need to block on this because etcd does NOT support concurrent watch creations on a single stream
-    // https://github.com/coreos/etcd/issues/7036
-
+  def prefix(id: String)(callback: WatchResponse => Unit): Future[Long] = {
     this.synchronized {
+      val p = Promise[Long]
+
       if (watchConnection.isEmpty) {
         watchConnection = createWatchConnection
       }
 
-      currentWaitingWatchRequest = Some(callback)
+      watchRequestQueue.add(Tuple2(p, callback))
 
       val key = ByteString.copyFromUtf8(id)
       watchConnection.get.onNext(
@@ -403,6 +402,7 @@ class EtcdWatch(private var stub: WatchStub) {
           rangeEnd = getBitIncreasedKey(key)
         ))
       )
+      p.future
     }
   }
 
