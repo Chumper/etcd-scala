@@ -15,6 +15,7 @@ import io.grpc.stub.StreamObserver
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
 import scala.concurrent.{Await, Future, Promise}
@@ -337,7 +338,7 @@ class EtcdWatch(private var stub: WatchStub) {
     */
   private val callbacks: ConcurrentMap[Long, Option[WatchResponse => Unit]] = new ConcurrentHashMap()
 
-  private var watchRequestQueue: Seq[Tuple2[Promise[Long], WatchResponse => Unit]] = Seq()
+  private var watchRequestQueue: mutable.Queue[Tuple2[Promise[Long], WatchResponse => Unit]] = mutable.Queue()
 
   private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
 
@@ -353,9 +354,10 @@ class EtcdWatch(private var stub: WatchStub) {
     override def onNext(value: WatchResponse): Unit = {
       if (value.created) {
         watchRequestQueue match {
-          case Seq(head, rest @ _*) => callbacks.put(value.watchId, Some(head._2))
-            watchRequestQueue.remove(0)
-            head._1.tryComplete(Try {value.watchId} )
+          case mutable.Queue(head, rest@_*) =>
+            val el = watchRequestQueue.dequeue()
+            callbacks.put(value.watchId, Some(el._2))
+            el._1.success(value.watchId)
           case _ =>
         }
       }
@@ -374,7 +376,7 @@ class EtcdWatch(private var stub: WatchStub) {
         watchConnection = createWatchConnection
       }
 
-      watchRequestQueue.add(Tuple2(p, callback))
+      watchRequestQueue += Tuple2(p, callback)
 
       watchConnection.get.onNext(
         WatchRequest().withCreateRequest(WatchCreateRequest(
@@ -393,7 +395,7 @@ class EtcdWatch(private var stub: WatchStub) {
         watchConnection = createWatchConnection
       }
 
-      watchRequestQueue.add(Tuple2(p, callback))
+      watchRequestQueue += Tuple2(p, callback)
 
       val key = ByteString.copyFromUtf8(id)
       watchConnection.get.onNext(
@@ -409,7 +411,6 @@ class EtcdWatch(private var stub: WatchStub) {
   def cancel(watchId: Long): Unit = {
     // remove from list
     this.synchronized {
-      callbacks.remove(watchId)
       watchConnection.get.onNext(
         WatchRequest().withCancelRequest(WatchCancelRequest(
           watchId = watchId
