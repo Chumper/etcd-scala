@@ -16,16 +16,14 @@ import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 import scala.collection.JavaConversions._
 import scala.collection.mutable
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration.DurationInt
-import scala.concurrent.{Await, Future, Promise}
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.language.postfixOps
-import scala.util.Try
 
 /**
   * Main trait for access to all etcd operations
   */
-class Etcd(address: String, port: Int, plainText: Boolean = true, token: Option[String] = None) {
+class Etcd(address: String, port: Int, plainText: Boolean = true, token: Option[String] = None)(implicit val ec: ExecutionContext) {
 
   private val builder: ManagedChannelBuilder[_ <: ManagedChannelBuilder[_]] = ManagedChannelBuilder.forAddress(address, port)
   if (plainText) {
@@ -54,10 +52,10 @@ class Etcd(address: String, port: Int, plainText: Boolean = true, token: Option[
 }
 
 object Etcd {
-  def apply(address: String = "localhost", port: Int = 2379, plainText: Boolean = true, token: Option[String] = None) = new Etcd(address, port, plainText, token)
+  def apply(address: String = "localhost", port: Int = 2379, plainText: Boolean = true, token: Option[String] = None)(implicit ec: ExecutionContext) = new Etcd(address, port, plainText, token)
 }
 
-class EtcdAuth(private var stub: AuthStub) {
+class EtcdAuth(private var stub: AuthStub)(implicit val ec: ExecutionContext) {
 
   def withToken(token: String): Unit = {
     this.stub = AuthGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
@@ -162,7 +160,7 @@ class EtcdAuth(private var stub: AuthStub) {
   }
 }
 
-class EtcdKv(private var stub: KVStub) {
+class EtcdKv(private var stub: KVStub)(implicit val ec: ExecutionContext) {
 
   def withToken(token: String): Unit = {
     this.stub = KVGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
@@ -251,7 +249,7 @@ class EtcdKv(private var stub: KVStub) {
   }
 }
 
-class EtcdLease(private var stub: LeaseStub) {
+class EtcdLease(private var stub: LeaseStub)(implicit val ec: ExecutionContext) {
 
   def withToken(token: String): Unit = {
     this.stub = LeaseGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
@@ -322,7 +320,7 @@ class EtcdLease(private var stub: LeaseStub) {
   }))
 }
 
-class EtcdWatch(private var stub: WatchStub) {
+class EtcdWatch(private var stub: WatchStub)(implicit val ec: ExecutionContext) {
 
   def withToken(token: String): Unit = {
     this.stub = WatchGrpc.stub(stub.getChannel).withCallCredentials(grpc.EtcdTokenCredentials(token))
