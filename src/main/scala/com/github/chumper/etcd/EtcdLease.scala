@@ -77,7 +77,7 @@ class EtcdLease(private var stub: LeaseStub)(implicit val ec: ExecutionContext) 
       // just ignore, callback feature is not implemented yet
       this.synchronized {
         val callers = callbacks.getOrDefault(value.iD, new util.HashSet[Promise[LeaseKeepAliveResponse]]())
-        callers.foreach(p => p.success(value))
+        callers.forEach(p => p.success(value))
         callbacks.remove(value.iD)
       }
     }
