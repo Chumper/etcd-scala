@@ -11,6 +11,9 @@ class EtcdTokenCredentials(token: String) extends CallCredentials {
     metaData.put(Metadata.Key.of("token", Metadata.ASCII_STRING_MARSHALLER), s"$token")
     applier.apply(metaData)
   }
+
+  // Implement this, because we are using an experimental API, jadda jadda.
+  override def thisUsesUnstableApi(): Unit = {}
 }
 
 object EtcdTokenCredentials {
