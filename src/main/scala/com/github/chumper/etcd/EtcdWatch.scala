@@ -30,7 +30,7 @@ class EtcdWatch(private var stub: WatchStub)(implicit val ec: ExecutionContext) 
     */
   private val callbacks: ConcurrentMap[Long, Option[WatchResponse => Unit]] = new ConcurrentHashMap()
 
-  private var watchRequestQueue: mutable.Queue[Tuple2[Promise[Long], WatchResponse => Unit]] = mutable.Queue()
+   private var watchRequestQueue: mutable.Queue[(Promise[Long], WatchResponse => Unit)] = mutable.Queue()
 
   private def createWatchConnection = Some(stub.watch(new StreamObserver[WatchResponse] {
 
@@ -118,5 +118,4 @@ class EtcdWatch(private var stub: WatchStub)(implicit val ec: ExecutionContext) 
     val byteKeyInc = ByteString.copyFrom(finalKey)
     byteKeyInc
   }
-
 }

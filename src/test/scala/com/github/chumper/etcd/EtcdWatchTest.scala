@@ -30,10 +30,10 @@ class EtcdWatchTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit
 
     for {
      r1 <- etcd.watch.key("12345") { resp =>
-       p.success(assert(true))
+       p.success(succeed)
      }
       r2 <- etcd.kv.putString("12345", "12345")
-      r3 <- Future {etcd.watch.cancel(r1)}
+      r3 <- Future { etcd.watch.cancel(r1) }
     } yield true
     p.future
   }
@@ -42,7 +42,7 @@ class EtcdWatchTest extends AsyncFunSuite with BeforeAndAfter with DockerTestKit
     val p = Promise[Assertion]
     for {
       r1 <- etcd.watch.prefix("12345") { resp =>
-        p.success(assert(true))
+        p.success(succeed)
       }
       r2 <- etcd.kv.putString("12345.asdasd", "12345")
       r3 <- Future { etcd.watch.cancel(r1) }
